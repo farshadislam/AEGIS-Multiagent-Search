@@ -21,30 +21,6 @@ from aegis import (
     SLEEP,
 )
 from mas.agent import BaseAgent, Brain, AgentController
-
-from typing import override
-
-# If you need to import anything else, add it to the import below.
-from aegis import (
-    END_TURN,
-    MOVE,
-    SAVE_SURV,
-    SEND_MESSAGE,
-    SEND_MESSAGE_RESULT,
-    TEAM_DIG,
-    AgentCommand,
-    AgentIDList,
-    AgentID,
-    World,
-    Cell,
-    Direction,
-    Rubble,
-    Survivor,
-    Location,
-    create_location,
-    SLEEP
-)
-from mas.agent import BaseAgent, Brain, AgentController
 import heapq
 
 
@@ -172,7 +148,7 @@ class ExampleAgent(Brain):
         
         # If the agent is on a charging cell, send a sleep command to recharge and end the turn.
         if current_cell.is_charging_cell():
-            self.send_and_end_turn(SLEEP())
+            self._agent.send(SLEEP())
 
 
         # Additional logic can be added here (or anywhere), such as choosing which direction to move to based on lots of different factors!
