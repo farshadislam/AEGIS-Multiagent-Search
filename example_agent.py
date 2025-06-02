@@ -123,13 +123,13 @@ class ExampleAgent(Brain):
             self.send_and_end_turn(MOVE(Direction.CENTER))
             return
         
-        
+        goalLocation = []
         # Iterate through all cells in the world
         for row in world.get_world_grid():
             for rowCell in row:
                 # Check if the top layer of the cell is a Survivor
                 if rowCell.has_survivors:
-                    self._agent._goal_locations.add(rowCell.location)
+                    goalLocation.append(rowCell.location)
 
         # Fetch the cell at the agent’s current location. If the location is outside the world’s bounds,
         # return a default move action and end the turn.
@@ -214,13 +214,5 @@ class ExampleAgent(Brain):
         self._agent.send(END_TURN())
     # My helper function!
     # This function computes the heuristic values for the A* search.
-    def computingHeuristic(self, goal, locationExploring):#adjacentDirection): 
-        heuristic = 0 #initial heuristic value is 0 
-
-        if locationExploring.x == goal.x:
-            heuristic = abs(locationExploring.y - goal.y) # if the x coordinates are the same, the heuristic is the difference in y coordinates
-        elif locationExploring.y == goal.y:
-            heuristic = abs(locationExploring.x - goal.x) # if the y coordinates are the same, the heuristic is the difference in x coordinates
-        else:
-            heuristic =  abs(locationExploring.y - goal.y)/abs(locationExploring.x - goal.x)  # if the x and y coordinates are different, the heuristic is the slope formula
-        return heuristic
+    def computingHeuristic(self, goal, locationExploring): 
+        return max(goal.y - locationExploring.y, goal.x - locationExploring.x)
