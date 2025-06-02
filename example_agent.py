@@ -163,11 +163,10 @@ class ExampleAgent(Brain):
         if current_cell.is_charging_cell():
             self._agent.send(SLEEP())
 
-
         # Additional logic can be added here (or anywhere), such as choosing which direction to move to based on lots of different factors!
         # You can make decisions using data you have learned through messages and stored in your data structures above
         # e.g. if you are the leader, you can find the closest agent to a survivor and tell that agent to go save them
-        #A STAR STARTS HERE!!!!!!!!!!
+        # A STAR STARTS HERE!!!!!!!!!!
         visited = {} # dictionary to keep track of visited vertices. keys are the cell locations, values are booleans
         for row in world.get_world_grid(): # iterating through the world grid. initially none of the vertices are visited, so all are set to False
             for rowCell in row:
