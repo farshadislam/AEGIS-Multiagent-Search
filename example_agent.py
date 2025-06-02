@@ -1,6 +1,12 @@
-from typing import override # Test message
+from typing import List, Dict, Tuple, Optional, override
 
 # If you need to import anything else, add it to the import below.
+from special_locations import (
+    add_danger,
+    add_heal,
+    add_survivor,
+)
+
 from aegis import (
     END_TURN,
     MOVE,
@@ -37,8 +43,11 @@ class ExampleAgent(Brain):
         # Some potentially useful suggestions:
         # self._locs_with_survs_and_amount: dict[Location, int] = {}
         # self._visited_locations: set[Location] = set()
-        self._agent_locations: list[Location | None] = [None] * self.NUM_AGENTS
-        self._current_goal: Location | None = None
+        self._best_path: List[Direction] = [] # Series of directions
+        self._goal_loc: Optional[Tuple[int, int]] = None # My own location object, seeing as how we cannot import Location for this assignment
+        self._explored_cells: Dict[Tuple[int, int], int] = {}  # Stores known move costs for each cell
+        self._agent_energy = self._agent.get_energy_level()  # Track agent's remaining energy (typically 500 given the examples)
+
         self._goal_locations = []
         self._danger_locations = set()
         self._medpack_locations = set()
@@ -102,6 +111,127 @@ class ExampleAgent(Brain):
             # A message was sent that doesn't match any of our known formats
             self._agent.log(f"Unknown message format: {smr.msg}")
 
+    @override
+    def think(self) -> None:
+        self._agent.log("Thinking...")
+
+        # First round initialization
+        if self._agent.get_round_number() == 1:
+            self.send_and_end_turn(MOVE(Direction.CENTER))
+            return
+
+        # Get the world object to perform operations upon
+        world = self.get_world()
+        if world is None:
+            self.send_and_end_turn(MOVE(Direction.CENTER))
+            return
+
+        # Check if already on survivor
+        current_cell = world.get_cell_at(self._agent.get_location())
+        if current_cell and isinstance(current_cell.get_top_layer(), Survivor):
+            self.send_and_end_turn(SAVE_SURV())
+            return
+
+        # Finds a path to the survivor if there isn't one already, every turn
+        self._best_path = self.a_star_search(world) # A* search algorithm which returns a series of directions for the agent to reach the survivor
+
+        # Move along path
+        if len(self._best_path) > 0:
+            next_dir = self._best_path.pop(0) # Pops next direction for the agent to move in
+            self.send_and_end_turn(MOVE(next_dir)) # Moves agent in said direction
+        else:
+            self.send_and_end_turn(MOVE(Direction.CENTER))
+
+    def a_star_search(self, world) -> List[Direction]:
+        start_loc = self._agent.get_location() # Gets initial starting position of agent at the beginning of the simulation
+        
+        if not self._goal_loc: # Identifies that there is not currently a goal location
+            for y in range(world.height):
+                for x in range(world.width): # Iterates through entire grid searching for a survivor
+                    loc = create_location(x, y) # Makes a location inside the grid
+                    cell = world.get_cell_at(loc) # Observes the cell at that location
+                    if cell.has_survivors: # Checks boolean flag for survivors inside cell
+                        self._goal_loc = (loc.x, loc.y) # Passes integers into my own personal location tuple
+                        self._agent.log("Found a survivor!")
+                        break
+        
+        if not self._goal_loc:
+            self._agent.log("Could not find any survivors!") # If there are no survivors in the grid, print to console
+            return [] # There are no coordinates to a non-existent survivor
+
+        goal_loc_obj = create_location(self._goal_loc[0], self._goal_loc[1]) # Where the survivor is located
+
+        # Priority queue: (priority, tie_breaker, location)
+        to_visit = [] # Priority queue keeping track of locations, with built-in tie breaker implementation
+        heapq.heappush(to_visit, (0, 0, start_loc)) # Has priority, tie breaker for same priorities, and the location
+        visited: Dict[Tuple[int, int], Optional[Tuple[int, int]]] = {} # Dictionary tracking locations and how they were reached
+        track_costs: Dict[Tuple[int, int], int] = {} # Keeps track of costs to reach every cell every time a_star_search() is called
+        visited[(start_loc.x, start_loc.y)] = None # We started at the starting location, we didn't get there from anywhere
+        track_costs[(start_loc.x, start_loc.y)] = 0 # Cost to reach the starting position is zero
+        tie_breaker = 1 # This value will be incremented iff two values are given the same priority
+
+        while to_visit: # This is done so long as the to_visit list is not empty
+            _, _, current_loc = heapq.heappop(to_visit) # Get the highest priority location from to_visit
+            current_coords = (current_loc.x, current_loc.y) # Get the specific x and y values for the location
+
+            if current_coords == self._goal_loc: # Ends function call is the survivor cell is reached
+                return self.reconstruct_path(visited, start_loc, current_loc) # Returns calculated path to survivor
+
+            for direction in Direction: # Observes all adjacent cells from current cell
+                if direction == Direction.CENTER: # Skips current cell obsesrvation
+                    continue
+
+                neighbor_loc = current_loc.add(direction) # Gets location of adjacent cell
+                neighbor_coords = (neighbor_loc.x, neighbor_loc.y) # Stores the location in my own tuple structure
+                
+                if not self.is_valid_move(world, neighbor_loc): # Can't be a killer, fire, or high cost cell
+                    continue
+
+                # Calculate new cost
+                new_move_cost = world.get_cell_at(neighbor_loc).move_cost # Cost of neighbour cell
+                new_cost = track_costs[current_coords] + new_move_cost # Overrall cost to reach neighbour cell
+
+                if (neighbor_coords not in track_costs or new_cost < track_costs[neighbor_coords]): # Logic to add a possible path-intermediate
+                    track_costs[neighbor_coords] = new_cost # Reassigns cost of cell
+                    cheb_heuristic = max(goal_loc_obj.y - neighbor_loc.y, goal_loc_obj.x - neighbor_loc.x) # Generates heuristic based on Chebychev distance between survivor location and neighbour location
+                    priority = new_cost + cheb_heuristic # Priority of cell based on overall cost to reach and heuristic
+                    heapq.heappush(to_visit, (priority, tie_breaker, neighbor_loc)) # Push new location to the priority queue
+                    tie_breaker += 1 # Every location added is numbered, so if two equal priority locations occur, there's not gonna be a tussle over who gets popped
+                    visited[neighbor_coords] = current_coords # Neighbour is reachable from the current location
+
+        return []  # No path found
+
+    def is_valid_move(self, world, location) -> bool:
+        if not world.on_map(location): # Check if location is on the grid
+            return False
+            
+        cell = world.get_cell_at(location) # CHeck if there is a cell at the location
+        if not cell:
+            return False 
+            
+        return not cell.is_killer_cell() and not cell.is_fire_cell() and cell.move_cost < self._agent.get_energy_level() # CHecks for dangerous or high cost cells and avoids them
+
+    def reconstruct_path(self, visited, start_loc, end_loc) -> List[Direction]: # Take visited dictionary, start and end locations 
+        path = [] # Series of directions that will be returned in think()
+        current_coords = (end_loc.x, end_loc.y) # Start at the end
+        start_coords = (start_loc.x, start_loc.y) # Want to reach the beginning of the agent's path
+        
+        while current_coords != start_coords:
+            prev_coords = visited[current_coords] # Access location current coordinate was reached from
+            prev_loc = create_location(prev_coords[0], prev_coords[1]) # Make into Location object
+            current_loc = create_location(current_coords[0], current_coords[1]) # Make into Location object
+            direction = prev_loc.direction_to(current_loc) # Get the direction between the two locations
+            path.append(direction) # Add the direction to the path
+            current_coords = prev_coords # Reassign the current coordinates and then do it all over, until the current coordinates match the starting coordinates
+            
+        return path[::-1]  # Reverse to get start-to-end order
+
+    def send_and_end_turn(self, command: AgentCommand):
+        """Send a command and end your turn."""
+        self._agent.log(f"SENDING {command}")
+        self._agent.send(command)
+        self._agent.send(END_TURN())
+    '''
     @override
     def think(self) -> None:
         self._agent.log("Thinking")
@@ -221,3 +351,4 @@ class ExampleAgent(Brain):
     # This function computes the heuristic values for the A* search.
     def computingHeuristic(self, goal, locationExploring): 
         return max(goal.y - locationExploring.y, goal.x - locationExploring.x)
+    '''
