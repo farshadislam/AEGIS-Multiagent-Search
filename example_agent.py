@@ -39,7 +39,9 @@ class ExampleAgent(Brain):
         # self._visited_locations: set[Location] = set()
         self._agent_locations: list[Location | None] = [None] * self.NUM_AGENTS
         self._current_goal: Location | None = None
-        self._goal_locations = {}
+        self._goal_locations = []
+        self._danger_locations = set()
+        self._medpack_locations = set()
 
     @override
     def handle_send_message_result(self, smr: SEND_MESSAGE_RESULT) -> None:
@@ -113,6 +115,7 @@ class ExampleAgent(Brain):
 
         # Putting in a specific agent ID will send to that agent only (e.g. sending information to a group leader).
         # Here we are telling agent 2 to move to our current location if we are the leader (ID = 1)
+
         if self._agent.get_agent_id().id == 1:
             message = f"MOVE {self._agent.get_location().x} {self._agent.get_location().y}"
             self._agent.send(SEND_MESSAGE(AgentIDList([AgentID(2, 1)]), message))
@@ -123,13 +126,16 @@ class ExampleAgent(Brain):
             self.send_and_end_turn(MOVE(Direction.CENTER))
             return
         
-        goalLocation = []
-        # Iterate through all cells in the world
-        for row in world.get_world_grid():
-            for rowCell in row:
+        if self._agent.get_round_number() == 1:
+            for row in world.get_world_grid():
+                for rowCell in row:
                 # Check if the top layer of the cell is a Survivor
-                if rowCell.has_survivors:
-                    goalLocation.append(rowCell.location)
+                    if rowCell.has_survivors:
+                        self._goal_locations.append(rowCell.location)
+                    elif rowCell.is_fire_cell or rowCell.is_killer_cell:
+                        self._danger_locations.add(rowCell.location)
+                    elif rowCell.is_charging_cell:
+                        self._medpack_locations.add(rowCell.location)
 
         # Fetch the cell at the agent’s current location. If the location is outside the world’s bounds,
         # return a default move action and end the turn.
@@ -171,7 +177,7 @@ class ExampleAgent(Brain):
         #the only vertex we start with is the initial location
         to_visit = []
         # push the initial location into the todo list with a priority of the heuristic as the agent location and goal location, and the path as a list containing the initial location
-        heapq.heappush(to_visit, (self.computingHeuristic(goalLocation[0], self._agent.get_location()),[self._agent.get_location()]))
+        heapq.heappush(to_visit, (self.computingHeuristic(self._goal_locations[0], self._agent.get_location()),[self._agent.get_location()]))
 
         while len(to_visit) > 0: # planning the path/searching for best path
             x = heapq.heappop(to_visit) #first thing, pull the first element from todo list. the priority and element
@@ -186,7 +192,7 @@ class ExampleAgent(Brain):
             visited[current_vertex] = True # mark the current vertex as visited
 
             # stop when found
-            if (current_vertex == goalLocation[0]):
+            if (current_vertex == self._goal_locations[0]):
                 print(f"Found the goal! Path is {current_path}!")
                 self.send_and_end_turn(MOVE(current_path[0].direction_to(current_path[1])))
             
@@ -198,7 +204,7 @@ class ExampleAgent(Brain):
                 adjacent_cell = world.get_cell_at(create_location(current_vertex.x, current_vertex.y).add(direction)) # getting the adjacent cell's adjacent cells
                 
                 if adjacent_cell is not None and not (adjacent_cell.is_fire_cell() or adjacent_cell.is_killer_cell()): # agent will not kill itself
-                    heuristic = self.computingHeuristic(goalLocation[0], adjacent_cell.location) # computing the heuristic value for the adjacent cell
+                    heuristic = self.computingHeuristic(self._goal_locations[0], adjacent_cell.location) # computing the heuristic value for the adjacent cell
 
                     # if the adjacent cell is not visited, push it into the todo list
                     if visited[adjacent_cell.location] == False:
