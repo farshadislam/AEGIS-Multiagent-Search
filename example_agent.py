@@ -39,6 +39,7 @@ class ExampleAgent(Brain):
         # self._visited_locations: set[Location] = set()
         self._agent_locations: list[Location | None] = [None] * self.NUM_AGENTS
         self._current_goal: Location | None = None
+        self._goal_locations = {}
 
     @override
     def handle_send_message_result(self, smr: SEND_MESSAGE_RESULT) -> None:
@@ -69,11 +70,11 @@ class ExampleAgent(Brain):
 
             # Log the received message and the agent's location.
             self._agent.log(f"Agent {self._agent.get_agent_id().id} is heading to location: {location}")
-        elif msg_list[0] == "LOCATION":
+        elif msg_list[0] == "LOCATION": # Handles messages formatted with "LOCATION x y : agent_id"
             # Extract the agent ID and its location from the message
-            agent_id = int(msg_list[1]) 
-            location_x = int(msg_list[2])
-            location_y = int(msg_list[3])
+            location_x = int(msg_list[1])
+            location_y = int(msg_list[2])
+            agent_id = int(msg_list[4]) 
             location = create_location(location_x, location_y)
 
             # Store the agent's location in a data structure (e.g., a list or dictionary)
@@ -89,6 +90,12 @@ class ExampleAgent(Brain):
 
         # you can add cases for other types of messages here
 
+        elif msg_list[0] == "SAVING": # Handles messages formatted with "SAVING x y : agent_id"
+            location_x = int(msg_list[1])
+            location_y = int(msg_list[2])
+            agent_id = int(msg_list[4])
+            location = create_location(location_x, location_y)
+
         else:
             # A message was sent that doesn't match any of our known formats
             self._agent.log(f"Unknown message format: {smr.msg}")
@@ -102,7 +109,7 @@ class ExampleAgent(Brain):
         # Using AgentIDList() will send the message to all agents in your group
         # Useful for broadcasting information, such as about the world state (e.g. to tell people a survivor was saved) or needing help with a task (e.g. need another agent to help dig this rubble)).
         self._agent.send(SEND_MESSAGE(AgentIDList(), f"Hello from agent {self._agent.get_agent_id().id}!"))
-        self._agent.send(SEND_MESSAGE(AgentIDList(), f"LOCATION {self._agent.get_agent_id().id} {self._agent.get_location().x} {self._agent.get_location().y}"))
+        self._agent.send(SEND_MESSAGE(AgentIDList(), f"LOCATION {self._agent.get_location().x} {self._agent.get_location().y} : {self._agent.get_agent_id().id}"))
 
         # Putting in a specific agent ID will send to that agent only (e.g. sending information to a group leader).
         # Here we are telling agent 2 to move to our current location if we are the leader (ID = 1)
@@ -116,13 +123,13 @@ class ExampleAgent(Brain):
             self.send_and_end_turn(MOVE(Direction.CENTER))
             return
         
-        goalLocation = []
+        
         # Iterate through all cells in the world
         for row in world.get_world_grid():
             for rowCell in row:
                 # Check if the top layer of the cell is a Survivor
                 if rowCell.has_survivors:
-                    goalLocation.append(rowCell.location)
+                    self._agent._goal_locations.add(rowCell.location)
 
         # Fetch the cell at the agent’s current location. If the location is outside the world’s bounds,
         # return a default move action and end the turn.
