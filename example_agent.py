@@ -42,6 +42,7 @@ from aegis import (
     Survivor,
     Location,
     create_location,
+    SLEEP
 )
 from mas.agent import BaseAgent, Brain, AgentController
 import heapq
