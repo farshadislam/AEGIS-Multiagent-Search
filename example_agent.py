@@ -18,6 +18,7 @@ from aegis import (
     Survivor,
     Location,
     create_location,
+    SLEEP,
 )
 from mas.agent import BaseAgent, Brain, AgentController
 
@@ -167,6 +168,10 @@ class ExampleAgent(Brain):
         if isinstance(top_layer, Rubble):
             self.send_and_end_turn(TEAM_DIG())
             return
+        
+        # If the agent is on a charging cell, send a sleep command to recharge and end the turn.
+        if current_cell.is_charging_cell():
+            self.send_and_end_turn(SLEEP())
 
 
         # Additional logic can be added here (or anywhere), such as choosing which direction to move to based on lots of different factors!
@@ -216,7 +221,7 @@ class ExampleAgent(Brain):
                         heapq.heappush(to_visit, (current_moveCost + adjacent_cell.move_cost + heuristic, current_path[:] + [adjacent_cell.location]))
 
         # Default action: Move the agent north if no other specific conditions are met. (you probably never want your code to reach here)
-        self.send_and_end_turn(MOVE(Direction.NORTH))
+        self.send_and_end_turn(MOVE(Direction.CENTER))
 
     def send_and_end_turn(self, command: AgentCommand):
         """Send a command and end your turn."""
