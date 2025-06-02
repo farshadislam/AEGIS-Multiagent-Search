@@ -7,6 +7,6 @@ On the first round agent_ID = 1, is the leader, and leader has 3 main tasks:
 when agent_partners are going towards a survivor (which they do a local scan for adjacent cells), clear any rubble on the way & save_surv
 
 
-Additional: if agent_energy < 20, find a charging cell.
+Additional: if agent_energy < n (n is what it costs to get to the surv ), send LOW_ENERGY msg to leader, leader send you to the closest charging cell.
 
 '''
