@@ -1,12 +1,12 @@
-from typing import List, Set
+from typing import Dict, Set
 from aegis import Location
 
-survivors_locs: List[Location] = []
+survivors_locs: Dict[Location : int] = {}
 danger_zones: Set[Location] = set()
 heal_locs: Set[Location] = set()
 
-def add_survivor(loc: Location) -> None:
-    survivors_locs.append(loc)
+def add_survivor(loc: Location, gid: int) -> None:
+    survivors_locs[loc] = gid
 
 def add_danger(loc: Location) -> None:
     danger_zones.add(loc)
