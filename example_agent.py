@@ -118,7 +118,7 @@ class ExampleAgent(Brain):
             return
         
         # First round initialization
-        if self._agent.get_round_number() == 1 and self._agent.id == 1:
+        if self._agent.get_round_number() == 1 and self._agent.get_agent_id().id == 1:
             for row in world.get_world_grid():
                 for rowCell in row:
                 # Check if the top layer of the cell is a Survivor
