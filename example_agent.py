@@ -111,14 +111,24 @@ class ExampleAgent(Brain):
     def think(self) -> None:
         self._agent.log("Thinking...")
 
-        # First round initialization
-        if self._agent.get_round_number() == 1:
-            self.send_and_end_turn(MOVE(Direction.CENTER))
-            return
-
         # Get the world object to perform operations upon
         world = self.get_world()
         if world is None:
+            self.send_and_end_turn(MOVE(Direction.CENTER))
+            return
+        
+        # First round initialization
+        if self._agent.get_round_number() == 1 and self._agent.id == 1:
+            for row in world.get_world_grid():
+                for rowCell in row:
+                # Check if the top layer of the cell is a Survivor
+                    if rowCell.has_survivors:
+                        add_survivor(rowCell.location)
+                    elif rowCell.is_fire_cell or rowCell.is_killer_cell:
+                        add_danger(rowCell.location)
+                    elif rowCell.is_charging_cell:
+                        add_heal(rowCell.location)
+            
             self.send_and_end_turn(MOVE(Direction.CENTER))
             return
 
