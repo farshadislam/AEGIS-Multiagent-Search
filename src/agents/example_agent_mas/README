@@ -1,0 +1,12 @@
+'''
+On the first round agent_ID = 1, is the leader, and leader has 3 main tasks:
+    1) scan the world for surv_loc, danger_cells, charging_cells, agents locs (from REPORT msg)
+    2) Based on agent_loc, assign 2 agnets to work to together. (Either based on spawning cell at round = 1, or the two that are closer together (NOT INCLUSING LEADER) )
+    3) Based on agent_partners_loc assign each partners a survivor to rescue. (A* search)
+
+when agent_partners are going towards a survivor (which they do a local scan for adjacent cells), clear any rubble on the way & save_surv
+
+
+Additional: if agent_energy < n (n is what it costs to get to the surv ), send LOW_ENERGY msg to leader, leader send you to the closest charging cell.
+
+'''
