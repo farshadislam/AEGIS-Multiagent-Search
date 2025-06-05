@@ -83,19 +83,21 @@ class ExampleAgent(Brain):
                 location_x = int(msg_list[2])
                 location_y = int(msg_list[3])
                 location = create_location(location_x, location_y)
-                self._agent_locations[agent_id] = location
+                self._agent_locations[agent_id] = location # Add location to a dictionary where all agents are located
                 self._agent.log(f"Agent {agent_id}'s location at ({location})")
 
                 # Leader pairs agents once all have been identified and round 2 has started
                 if self._agent.get_agent_id().id == 1 and self._agent.get_round_number() == 2:
                     self.assign_groups()
                     self.assign_group_goals()
-
-        elif msg_list[0] == "HEALTH_LOW":
-            return
         
         elif msg_list[0] == "SAVING":
-            return
+            surv_x = int(msg_list[1])
+            surv_y = int(msg_list[2])
+            surv_loc = create_location(surv_x, surv_y)
+
+            self._survivor_cells.discard(surv_loc)
+            self.assign_group_goals()
 
         else:
             # A message was sent that doesn't match any of our known formats
@@ -157,24 +159,10 @@ class ExampleAgent(Brain):
                 self.send_and_end_turn(TEAM_DIG())
             else:
                 self._agent.send(SEND_MESSAGE(AgentIDList(), f"RUBBLE {current_cell.location.x} {current_cell.location.y}"))
-        '''
-        if not self._goal_loc: # Identifies that there is not currently a goal location
-            for y in range(world.height):
-                for x in range(world.width): # Iterates through entire grid searching for a survivor
-                    loc = create_location(x, y) # Makes a location inside the grid
-                    cell = world.get_cell_at(loc) # Observes the cell at that location
-                    if cell.has_survivors: # Checks boolean flag for survivors inside cell
-                        self._goal_loc = (loc.x, loc.y) # Passes integers into my own personal location tuple
-                        self._agent.log("Found a survivor!")
-                        break
-        
-        if not self._goal_loc:
-            self._agent.log("Could not find any survivors!") # If there are no survivors in the grid, print to console
-            return [] # There are no coordinates to a non-existent survivor
-        '''
+        elif current_cell and current_cell.is_charging_cell() and self._agent_energy < 50:
+            self.send_and_end_turn(SLEEP())
 
         start_loc = self._agent.get_location()
-        # goal_loc_obj = create_location(self._goal_loc[0], self._goal_loc[1]) # Where the survivor is located
         new_goal_loc = self._current_goal
 
         if not new_goal_loc:
@@ -191,6 +179,9 @@ class ExampleAgent(Brain):
             self.send_and_end_turn(MOVE(next_dir)) # Moves agent in said direction
         else:
             self.send_and_end_turn(MOVE(Direction.CENTER))
+
+        if self._agent_energy < 50:
+            return
 
     def a_star_search(self, world, start_loc, goal_loc_obj) -> List[Direction]:
         # Priority queue: (priority, tie_breaker, location)
@@ -259,9 +250,6 @@ class ExampleAgent(Brain):
         return path[::-1]  # Reverse to get start-to-end order
     
     def assign_groups(self) -> None:
-        if self._agent.get_agent_id().id != 1:
-            return  # Only the leader should assign groups
-
         # Include the leader (ID 1) and agents who reported location
         all_agents = sorted(set(self._agent_locations.keys()) | {1})
 
@@ -285,14 +273,11 @@ class ExampleAgent(Brain):
                 self._agent.log(f"Added Agent {leftover_id} to group {last_group_id}, making it a group of 3")
 
     def assign_group_goals(self) -> None:
-        if self._agent.get_agent_id().id != 1:
-            return  # Only the leader assigns goals
-
         if not self._agent_groups or not self._survivor_cells:
             self._agent.log("No groups or survivors to assign.")
             return
 
-        unassigned_survivors = set(self._survivor_cells)
+        unassigned_survivors = set(self._survivor_cells) # Copy 
 
         for group_id, agent_ids in self._agent_groups.items():
             best_survivor = None
@@ -318,10 +303,7 @@ class ExampleAgent(Brain):
 
                 goal_msg = f"GOAL {best_survivor.x} {best_survivor.y}"
                 for aid in agent_ids:
-                    self._agent.send(SEND_MESSAGE(
-                        AgentIDList([AgentID(aid, self._agent.get_agent_id().gid)]),
-                        goal_msg
-                    ))
+                    self._agent.send(SEND_MESSAGE(AgentIDList([AgentID(aid, self._agent.get_agent_id().gid)]), goal_msg))
                 self._agent.log(
                     f"Assigned survivor at ({best_survivor.x}, {best_survivor.y}) to group {group_id} "
                     f"with estimated path length {min_path_len}"
@@ -329,7 +311,8 @@ class ExampleAgent(Brain):
             else:
                 self._agent.log(f"No reachable survivor for group {group_id}")
 
-            
+    def recover_energy_priority(self):
+        return 
 
     def send_and_end_turn(self, command: AgentCommand):
         """Send a command and end your turn."""
