@@ -23,6 +23,7 @@ from aegis import (
 )
 from mas.agent import BaseAgent, Brain, AgentController
 import heapq
+import random
 
 
 class ExampleAgent(Brain):
@@ -267,10 +268,13 @@ class ExampleAgent(Brain):
         # If there's an unpaired agent, add them to the last group
         if num_agents % 2 == 1:
             leftover_id = all_agents[-1]
-            if group_id > 1:
-                last_group_id = group_id - 1
-                self._agent_groups[last_group_id].append(leftover_id)
-                self._agent.log(f"Added Agent {leftover_id} to group {last_group_id}, making it a group of 3")
+            if self._agent_groups:
+                random_group = random.choice(list(self._agent_groups.keys()))
+                self._agent_groups[random_group].append(leftover_id)
+                self._agent.log(f"Added Agent {leftover_id} to group {random_group}, making it a group of 3")
+            else:
+                self._agent.log(f"Only one agent ({leftover_id}), no groups to add them to")
+
 
     def assign_group_goals(self) -> None:
         if not self._agent_groups or not self._survivor_cells:
