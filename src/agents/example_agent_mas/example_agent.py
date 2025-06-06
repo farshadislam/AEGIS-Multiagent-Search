@@ -103,6 +103,7 @@ class ExampleAgent(Brain):
         else:
             # A message was sent that doesn't match any of our known formats
             self._agent.log(f"Unknown message format: {smr.msg}")
+        
 
     @override
     def think(self) -> None:
@@ -155,12 +156,18 @@ class ExampleAgent(Brain):
             self._agent.send(SEND_MESSAGE(AgentIDList(), f"SAVING {current_cell.location.x} {current_cell.location.y}"))
             self.send_and_end_turn(SAVE_SURV())
             return
-        elif current_cell and isinstance(current_cell.get_top_layer(), Rubble) and current_cell.has_survivors:
-            if current_cell.get_top_layer().remove_agents <= current_cell.agent_id_list.size():
-                self.send_and_end_turn(TEAM_DIG())
+
+        elif current_cell and current_cell.has_survivors:
+            top_layer = current_cell.get_top_layer()
+
+            if isinstance(top_layer, Rubble):
+                self.clear_rubble(current_cell, self._agent.get_location())
+                return
             else:
-                self._agent.send(SEND_MESSAGE(AgentIDList(), f"RUBBLE {current_cell.location.x} {current_cell.location.y}"))
-        elif current_cell and current_cell.is_charging_cell() and self._agent_energy < 50:
+                self._agent.save_survivor()
+                return
+
+        if current_cell and current_cell.is_charging_cell() and self._agent_energy < 50:
             self.send_and_end_turn(SLEEP())
 
         start_loc = self._agent.get_location()
@@ -232,8 +239,12 @@ class ExampleAgent(Brain):
         cell = world.get_cell_at(location) # CHeck if there is a cell at the location
         if not cell:
             return False 
+            # Skip charging cells if agent has enough energy
+        if cell.is_charging_cell() and self._agent.get_energy_level() > 50:
+            return False
+
             
-        return not cell.is_killer_cell() and not cell.is_fire_cell() and cell.move_cost < self._agent.get_energy_level() # CHecks for dangerous or high cost cells and avoids them
+        return not cell.is_killer_cell() and not cell.is_fire_cell() and cell.move_cost < self._agent.get_energy_level()  # CHecks for dangerous or high cost cells and avoids them
 
     def reconstruct_path(self, visited, start_loc, end_loc) -> List[Direction]: # Take visited dictionary, start and end locations 
         path = [] # Series of directions that will be returned in think()
@@ -274,7 +285,6 @@ class ExampleAgent(Brain):
                 self._agent.log(f"Added Agent {leftover_id} to group {random_group}, making it a group of 3")
             else:
                 self._agent.log(f"Only one agent ({leftover_id}), no groups to add them to")
-
 
     def assign_group_goals(self) -> None:
         if not self._agent_groups or not self._survivor_cells:
@@ -317,6 +327,33 @@ class ExampleAgent(Brain):
 
     def recover_energy_priority(self):
         return 
+
+    def clear_rubble(self, cell: Cell, current_loc: Location):
+
+        if not cell or not isinstance(cell.get_top_layer(), Rubble):
+            self._agent.log("No rubble to clear at current location.")
+            return
+
+        rubble: Rubble = cell.get_top_layer()
+        agents_needed = rubble.remove_agents
+        energy_needed = rubble.remove_energy
+        current_agents = cell.agent_id_list.size()
+
+        self._agent.log(
+            f"Rubble found at ({current_loc.x}, {current_loc.y})"
+            f"Needs {agents_needed} agents and {energy_needed} energy."
+      
+        )
+
+        if agents_needed >= current_agents:
+            self._agent.log(f"Agent {self._agent.get_agent_id().id} clearing rubble at ({current_loc.x}, {current_loc.y}) with team")
+            self.send_and_end_turn(TEAM_DIG())
+            
+        else:
+            self._agent.log(
+                f"Not enough agents to clear rubble at ({current_loc.x}, {current_loc.y})."
+            )
+
 
     def send_and_end_turn(self, command: AgentCommand):
         """Send a command and end your turn."""
