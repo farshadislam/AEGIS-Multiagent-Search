@@ -23,12 +23,13 @@ from aegis import (
 )
 from mas.agent import BaseAgent, Brain, AgentController
 import heapq
+import random
 
 
 class ExampleAgent(Brain):
     # Store any constants you want to define here
     # Example:
-    NUM_AGENTS = 7
+    NUM_AGENTS = 4
 
     def __init__(self) -> None:
         super().__init__()
@@ -78,42 +79,31 @@ class ExampleAgent(Brain):
             self._agent.log(f"Agent {self._agent.get_agent_id().id} rescuing survivor at location: {location}")
 
         elif msg_list[0] == "REPORT_LOCATION":
-            # Handle report message.
-            agent_id = int(msg_list[1])
-            location_x = int(msg_list[2])
-            location_y = int(msg_list[3])
-            location = create_location(location_x, location_y)
-            self._agent_locations[agent_id] = location
-            self._agent.log(f"Agent {agent_id}'s location at ({location})")
+                # Handle report message.
+                agent_id = int(msg_list[1])
+                location_x = int(msg_list[2])
+                location_y = int(msg_list[3])
+                location = create_location(location_x, location_y)
+                self._agent_locations[agent_id] = location # Add location to a dictionary where all agents are located
+                self._agent.log(f"Agent {agent_id}'s location at ({location})")
 
-            # Leader pairs agents once all have been identified and round 2 has started
-            if self._agent.get_agent_id().id == 1 and self._agent.get_round_number() == 2:
-                self.assign_groups()
-            if self._agent.get_agent_id().id == 1:
-                self.assign_group_goals()
-
-        elif msg_list[0] == "HEALTH_LOW":
-            return
+                # Leader pairs agents once all have been identified and round 2 has started
+                if self._agent.get_agent_id().id == 1 and self._agent.get_round_number() == 2:
+                    self.assign_groups()
+                    self.assign_group_goals()
         
         elif msg_list[0] == "SAVING":
-            return
-        
-        elif msg_list[0] == "RESCUED":
-            self._survivor_cells.delete(create_location(int(msg_list[1]), int(msg_list[2])))
-        
-        elif msg_list[0] == "RUBBLE":
-            # Handle report message.
-            agent_id = int(msg_list[1])
-            location_x = int(msg_list[2])
-            location_y = int(msg_list[3])
-            location = create_location(location_x, location_y)
-            self._agent_locations[agent_id] = location
-            self._agent.log(f"Agent {agent_id}'s location at ({location})")
+            surv_x = int(msg_list[1])
+            surv_y = int(msg_list[2])
+            surv_loc = create_location(surv_x, surv_y)
 
+            self._survivor_cells.discard(surv_loc)
+            self.assign_group_goals()
 
         else:
             # A message was sent that doesn't match any of our known formats
             self._agent.log(f"Unknown message format: {smr.msg}")
+        
 
     @override
     def think(self) -> None:
@@ -157,42 +147,30 @@ class ExampleAgent(Brain):
                 self._agent.log(f"Total dangerous cells: {len(self._danger_cells)} | {self._danger_cells}")
                 self._agent.log(f"Total charging cells: {len(self._charging_cells)} | {self._charging_cells}")
 
-            self.send_and_end_turn(MOVE(Direction.CENTER))
+            #self.send_and_end_turn(MOVE(Direction.CENTER))
+            self._agent.send(END_TURN())  # End turn after initialization
             return
 
         # Check if already on survivor
         current_cell = world.get_cell_at(self._agent.get_location())
         if current_cell and isinstance(current_cell.get_top_layer(), Survivor):
             self._agent.send(SEND_MESSAGE(AgentIDList(), f"SAVING {current_cell.location.x} {current_cell.location.y}"))
-
-            self._agent.send(SAVE_SURV())
-            if not current_cell.has_survivors:
-                self._agent.send(SEND_MESSAGE(AgentIDList(), f"RESCUED {current_cell.location.x} {current_cell.location.y}"))
-            self._agent.send(END_TURN())
+            self.send_and_end_turn(SAVE_SURV())
             return
-        elif current_cell and isinstance(current_cell.get_top_layer(), Rubble) and current_cell.has_survivors:
-            if current_cell.get_top_layer().remove_agents <= current_cell.agent_id_list.size():
-                self.send_and_end_turn(TEAM_DIG())
+
+        elif current_cell and current_cell.has_survivors:
+            top_layer = current_cell.get_top_layer()
+
+            if isinstance(top_layer, Rubble):
+                self.clear_rubble(current_cell, self._agent.get_location())
+                return
             else:
-                self._agent.send(SEND_MESSAGE(AgentIDList(), f"RUBBLE {self._agent.get_agent_id()} {current_cell.location.x} {current_cell.location.y}"))
-        '''
-        if not self._goal_loc: # Identifies that there is not currently a goal location
-            for y in range(world.height):
-                for x in range(world.width): # Iterates through entire grid searching for a survivor
-                    loc = create_location(x, y) # Makes a location inside the grid
-                    cell = world.get_cell_at(loc) # Observes the cell at that location
-                    if cell.has_survivors: # Checks boolean flag for survivors inside cell
-                        self._goal_loc = (loc.x, loc.y) # Passes integers into my own personal location tuple
-                        self._agent.log("Found a survivor!")
-                        break
+                self._agent.save_survivor()
+                return
+
         
-        if not self._goal_loc:
-            self._agent.log("Could not find any survivors!") # If there are no survivors in the grid, print to console
-            return [] # There are no coordinates to a non-existent survivor
-        '''
 
         start_loc = self._agent.get_location()
-        # goal_loc_obj = create_location(self._goal_loc[0], self._goal_loc[1]) # Where the survivor is located
         new_goal_loc = self._current_goal
 
         if not new_goal_loc:
@@ -201,7 +179,17 @@ class ExampleAgent(Brain):
             return
 
         # Finds a path to the survivor if there isn't one already, every turn
-        self._best_path = self.a_star_search(world, start_loc, new_goal_loc) # A* search algorithm which returns a series of directions for the agent to reach the survivor
+        survivor_path = self.a_star_search(world, start_loc, new_goal_loc) # A* search algorithm which returns a series of directions for the agent to reach the survivor
+        self._current_goal = self.goal_priority(world, current_cell, survivor_path, new_goal_loc) # Stores the best path to the survivor in a list of directions
+        #print("Current goal:", world.get_cell_at(self._current_goal).is_charging_cell())
+        self._best_path = self.a_star_search(world, start_loc, new_goal_loc)#self._current_goal)
+
+        print(self._agent.get_energy_level() < self.get_move_cost_path(world, current_cell, survivor_path), self.get_move_cost_path(world, current_cell, survivor_path))
+        print(self._agent.get_energy_level(), "Agent energy level")
+        if current_cell and current_cell.is_charging_cell() and self._agent.get_energy_level() <= self.get_move_cost_path(world, current_cell, survivor_path):
+            # If the agent is on a charging cell and doesn't have enough energy to reach the survivor, charge
+            print("GO THE FUCK TO SLEEP")
+            self.send_and_end_turn(SLEEP())
 
         # Move along path
         if len(self._best_path) > 0:
@@ -209,6 +197,9 @@ class ExampleAgent(Brain):
             self.send_and_end_turn(MOVE(next_dir)) # Moves agent in said direction
         else:
             self.send_and_end_turn(MOVE(Direction.CENTER))
+
+        # if self._agent_energy < 50:
+        #     return
 
     def a_star_search(self, world, start_loc, goal_loc_obj) -> List[Direction]:
         # Priority queue: (priority, tie_breaker, location)
@@ -258,8 +249,12 @@ class ExampleAgent(Brain):
         cell = world.get_cell_at(location) # CHeck if there is a cell at the location
         if not cell:
             return False 
+            # Skip charging cells if agent has enough energy
+        if cell.is_charging_cell() and self._agent.get_energy_level() > 50:
+            return False
+
             
-        return not cell.is_killer_cell() and not cell.is_fire_cell() and cell.move_cost < self._agent.get_energy_level() # CHecks for dangerous or high cost cells and avoids them
+        return not cell.is_killer_cell() and not cell.is_fire_cell() and cell.move_cost < self._agent.get_energy_level()  # CHecks for dangerous or high cost cells and avoids them
 
     def reconstruct_path(self, visited, start_loc, end_loc) -> List[Direction]: # Take visited dictionary, start and end locations 
         path = [] # Series of directions that will be returned in think()
@@ -277,9 +272,6 @@ class ExampleAgent(Brain):
         return path[::-1]  # Reverse to get start-to-end order
     
     def assign_groups(self) -> None:
-        if self._agent.get_agent_id().id != 1:
-            return  # Only the leader should assign groups
-
         # Include the leader (ID 1) and agents who reported location
         all_agents = sorted(set(self._agent_locations.keys()) | {1})
 
@@ -297,20 +289,19 @@ class ExampleAgent(Brain):
         # If there's an unpaired agent, add them to the last group
         if num_agents % 2 == 1:
             leftover_id = all_agents[-1]
-            if group_id > 1:
-                last_group_id = group_id - 1
-                self._agent_groups[last_group_id].append(leftover_id)
-                self._agent.log(f"Added Agent {leftover_id} to group {last_group_id}, making it a group of 3")
+            if self._agent_groups:
+                random_group = random.choice(list(self._agent_groups.keys()))
+                self._agent_groups[random_group].append(leftover_id)
+                self._agent.log(f"Added Agent {leftover_id} to group {random_group}, making it a group of 3")
+            else:
+                self._agent.log(f"Only one agent ({leftover_id}), no groups to add them to")
 
     def assign_group_goals(self) -> None:
-        if self._agent.get_agent_id().id != 1:
-            return  # Only the leader assigns goals
-
         if not self._agent_groups or not self._survivor_cells:
             self._agent.log("No groups or survivors to assign.")
             return
 
-        unassigned_survivors = set(self._survivor_cells)
+        unassigned_survivors = set(self._survivor_cells) # Copy 
 
         for group_id, agent_ids in self._agent_groups.items():
             best_survivor = None
@@ -336,10 +327,7 @@ class ExampleAgent(Brain):
 
                 goal_msg = f"GOAL {best_survivor.x} {best_survivor.y}"
                 for aid in agent_ids:
-                    self._agent.send(SEND_MESSAGE(
-                        AgentIDList([AgentID(aid, self._agent.get_agent_id().gid)]),
-                        goal_msg
-                    ))
+                    self._agent.send(SEND_MESSAGE(AgentIDList([AgentID(aid, self._agent.get_agent_id().gid)]), goal_msg))
                 self._agent.log(
                     f"Assigned survivor at ({best_survivor.x}, {best_survivor.y}) to group {group_id} "
                     f"with estimated path length {min_path_len}"
@@ -347,7 +335,100 @@ class ExampleAgent(Brain):
             else:
                 self._agent.log(f"No reachable survivor for group {group_id}")
 
+    def recover_energy_priority(self):
+        return 
+
+    def clear_rubble(self, cell: Cell, current_loc: Location):
+
+        if not cell or not isinstance(cell.get_top_layer(), Rubble):
+            self._agent.log("No rubble to clear at current location.")
+            return
+
+        rubble: Rubble = cell.get_top_layer()
+        agents_needed = rubble.remove_agents
+        energy_needed = rubble.remove_energy
+        current_agents = cell.agent_id_list.size()
+
+        self._agent.log(
+            f"Rubble found at ({current_loc.x}, {current_loc.y})"
+            f"Needs {agents_needed} agents and {energy_needed} energy."
+      
+        )
+
+        if agents_needed >= current_agents:
+            self._agent.log(f"Agent {self._agent.get_agent_id().id} clearing rubble at ({current_loc.x}, {current_loc.y}) with team")
+            self.send_and_end_turn(TEAM_DIG())
             
+        else:
+            self._agent.log(
+                f"Not enough agents to clear rubble at ({current_loc.x}, {current_loc.y})."
+            )
+
+    def get_move_cost_path(self, world: World, current_cell: Cell, survivor_path: List[Direction]) -> int:
+        """Check if the agent has enough energy to perform actions."""
+        # Checking if agent has enough energy to move to survivor cell
+        cell = None # Initialize cell variable to None
+        a_star_move_cost = current_cell.move_cost # Initialize move cost for the path to the survivor cell
+        for direction in survivor_path: # If the agent has a path to the survivor, check if it has enough energy to move
+            if direction == Direction.CENTER:
+                    continue
+            if cell is not None:
+                cell = world.get_cell_at(create_location(cell.location.x, cell.location.y).add(direction)) # getting the adjacent cell's adjacent cells
+            else:
+                cell = world.get_cell_at(create_location(current_cell.location.x, current_cell.location.y).add(direction)) # getting the adjacent cell's adjacent cells
+            a_star_move_cost += cell.move_cost
+        #print(a_star_move_cost, "Move cost for the path to the survivor cell")
+        return a_star_move_cost  # Returns the move cost for the path to the survivor cell
+    
+    def goal_priority(self, world, current_cell, survivor_path, survivor_goal) -> Location:
+        """Check if the agent has enough energy to perform actions."""
+        # Checking if agent has enough energy to move to survivor cell
+        cell = None # Initialize cell variable to None
+        a_star_move_cost = 0 # Initialize move cost for the path to the survivor cell
+        for direction in survivor_path: # If the agent has a path to the survivor, check if it has enough energy to move
+            if direction == Direction.CENTER:
+                    continue
+            if cell is not None:
+                cell = world.get_cell_at(create_location(cell.location.x, cell.location.y).add(direction)) # getting the adjacent cell's adjacent cells
+            else:
+                cell = world.get_cell_at(create_location(current_cell.location.x, current_cell.location.y).add(direction)) # getting the adjacent cell's adjacent cells
+            a_star_move_cost += cell.move_cost
+        
+        if self._agent.get_energy_level() < a_star_move_cost: # If the agent does not have enough energy to move to the survivor cell
+            #print("Low energy, looking for charging cell.")
+            #self.send_and_end_turn(SEND_MESSAGE(AgentIDList(), f"LOW_ENERGY {self._agent.get_agent_id().id} {current_cell.location.x} {current_cell.location.y}"))
+            #self._agent.send(SEND_MESSAGE(AgentIDList(), f"LOW_ENERGY {self._agent.get_agent_id().id} {current_cell.location.x} {current_cell.location.y}"))
+            
+
+            agent_location = self._agent.get_location()
+            # Getting the move costs of all the charging cells before moving towards the one with the lowest cost
+            charging_cells = [] # List will store tuples of (Location charge_goal, int move_cost, path List[Direction])
+            for charge_cell in self._charging_cells:
+                a_star_path = self.a_star_search(world, self._agent.get_location(), charge_cell)
+                a_star_move_cost = 0 # Initialize move cost for the path to the charging cell
+                cell = None
+                for direction in a_star_path:
+                    if direction == Direction.CENTER:
+                        continue
+                    if cell is not None:
+                        cell = world.get_cell_at(create_location(cell.location.x, cell.location.y).add(direction)) # getting the adjacent cell's adjacent cells
+                    else:
+                        cell = world.get_cell_at(create_location(agent_location.x, agent_location.y).add(direction)) # getting the adjacent cell's adjacent cells
+                    a_star_move_cost += cell.move_cost
+                charging_cells.append((charge_cell, a_star_move_cost, a_star_path)) # Add the path ID, move cost, and path to the list
+            # Sort the charging cells by move cost
+            charging_cells.sort(key=lambda x: x[1]) # Sorts the list of tuples by move cost
+
+            charging_goal = []
+            if charging_cells: # If there are charging cells available
+                charging_goal = charging_cells[0][0] # Gets the location of the charging cell with the lowest move cost
+                self._agent.log(f"Charging cell with lowest move cost is {charging_goal} with a move cost of {charging_cells[0][1]}.")  
+                return charging_goal
+                # Move towards the charging cell
+                charging_path = charging_cells[0][2] # Gets the path to the charging cell with the lowest move cost
+                #self._current_goal = charging_goal # Sets the current goal to the charging cell with the lowest move cost
+        else:
+            return survivor_goal
 
     def send_and_end_turn(self, command: AgentCommand):
         """Send a command and end your turn."""
